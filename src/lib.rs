@@ -1,3 +1,19 @@
+//! A utility that stitches 4 images together
+//!
+//! run the binary:
+//! $ stitcher --using foo
+//!
+//! Assuming you had the following files:
+//! - foo-tl.png
+//! - foo-tr.png
+//! - foo-bl.png
+//! - foo-br.png
+//!
+//! This will output a png called foo-out.png which contains all four of the
+//! above files stitched together in a 2x2 layout
+//!
+//! building and running with info log levels:
+//! STITCHER_LOG='info' stitcher --base foo
 #[macro_use]
 extern crate failure;
 extern crate image;
@@ -85,20 +101,33 @@ fn copy_into(
 ///
 /// Assuming that the image files: 'artwork-tl.png', 'artwork-tl.png',
 /// 'artwork-tl.png' and 'artwork-tl.png' exist, the function will combine them
-/// into a single file called 'artwork.out' that's saved in the same location
+/// into a single file called 'artwork-out.png' which is saved in the same location
 /// as the input files
-pub fn stitch(base: &str) -> Result<()> {
-    info!("combine: base:{}", base);
+pub fn stitch(using: &str) -> Result<()> {
+    info!("stitch:{}", using);
 
-    let filename_tl = format!("{}-tl.png", base);
-    let filename_tr = format!("{}-tr.png", base);
-    let filename_bl = format!("{}-bl.png", base);
-    let filename_br = format!("{}-br.png", base);
+    let filename_tl = format!("{}-tl.png", using);
+    let filename_tr = format!("{}-tr.png", using);
+    let filename_bl = format!("{}-bl.png", using);
+    let filename_br = format!("{}-br.png", using);
+    let filename_output = format!("{}-out.png", using);
 
-    let img_tl = image::open(filename_tl)?;
-    let img_tr = image::open(filename_tr)?;
-    let img_bl = image::open(filename_bl)?;
-    let img_br = image::open(filename_br)?;
+    stitch_images(
+        &filename_tl,
+        &filename_tr,
+        &filename_bl,
+        &filename_br,
+        &filename_output,
+    )
+}
+
+pub fn stitch_images(tl: &str, tr: &str, bl: &str, br: &str, out: &str) -> Result<()> {
+    info!("stitch_images: {} {} {} {} -> {}", tl, tr, bl, br, out);
+
+    let img_tl = image::open(tl)?;
+    let img_tr = image::open(tr)?;
+    let img_bl = image::open(bl)?;
+    let img_br = image::open(br)?;
 
     // all images should have the same dimensions
     let (width, height) = img_tl.dimensions();
@@ -114,8 +143,7 @@ pub fn stitch(base: &str) -> Result<()> {
     copy_into(&mut img, &img_bl, 0, height, width, height)?;
     copy_into(&mut img, &img_br, width, height, width, height)?;
 
-    let filename_output = format!("{}-out.png", base);
-    let ref mut fout = File::create(filename_output)?;
+    let ref mut fout = File::create(out)?;
     image::ImageRgba8(img).save(fout, image::PNG)?;
 
     Ok(())
