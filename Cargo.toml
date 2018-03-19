@@ -1,6 +1,10 @@
 [package]
 name = "stitcher"
 version = "0.1.0"
+license = "MIT"
+readme = "README.md"
+keywords = ["image-processing"]
+description = "A utility that stitches 4 images together"
 authors = ["Inderjit Gill <email@indy.io>"]
 
 [dependencies]
