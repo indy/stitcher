@@ -1,9 +1,21 @@
-//! A utility that stitches 4 images together
+// Copyright ⓒ 2018 Inderjit Gill
+// Licensed under the MIT license
+// (see LICENSE-MIT or <http://opensource.org/licenses/MIT>) All files in the project carrying such
+// notice may not be copied, modified, or distributed except according to those terms.
+
+//! 'stitcher' is a utility that stitches 4 images together
 //!
-//! run the binary:
+//!
+//! ## Running the binary:
+//!
+//! ### Conventional usage
+//!
+//! ```no_run
 //! $ stitcher --using foo
+//! ```
 //!
 //! Assuming you had the following files:
+//!
 //! - foo-tl.png
 //! - foo-tr.png
 //! - foo-bl.png
@@ -12,8 +24,31 @@
 //! This will output a png called foo-out.png which contains all four of the
 //! above files stitched together in a 2x2 layout
 //!
-//! building and running with info log levels:
-//! STITCHER_LOG='info' stitcher --base foo
+//! ### Explicit usage
+//!
+//! Here's an example that specifies each of the files:
+//!
+//! ```no_run
+//! $ stitcher --top-left a.png --top-right b.png --bottom-left c.png --bottom-right d.png --output output.png
+//! ```
+//!
+//! ### Debug usage
+//!
+//! To show different log levels, set the STITCHER_LOG environment variable to one of the following:
+//!
+//! - trace
+//! - debug
+//! - info
+//! - warn
+//! - error
+//!
+//! $ STITCHER_LOG='trace' stitcher --using foo
+//!
+//! ## License
+//!
+//! `stitcher` is licensed under the MIT license. Please read the [LICENSE-MIT](LICENSE-MIT) file in
+//! this repository for more information.
+
 #[macro_use]
 extern crate failure;
 extern crate image;
@@ -22,6 +57,7 @@ extern crate log;
 
 use std::io::Error as IoError;
 use std::fs::File;
+use std::path::Path;
 
 use image::{DynamicImage, GenericImage, ImageBuffer};
 
@@ -121,8 +157,19 @@ pub fn stitch(using: &str) -> Result<()> {
     )
 }
 
-pub fn stitch_images(tl: &str, tr: &str, bl: &str, br: &str, out: &str) -> Result<()> {
-    info!("stitch_images: {} {} {} {} -> {}", tl, tr, bl, br, out);
+/// Stitch together four images given by tl, tr, bl, br. Saving the result as the filename given in out
+///
+/// # Example
+///
+/// ```
+/// use stitcher::stitch;
+///
+/// stitch_images("artwork-top-left.png", "artwork-top-right.png", "artwork-bottom-left.png", "artwork-bottom-right.png", "result.png")?;
+/// ```
+pub fn stitch_images<P>(tl: P, tr: P, bl: P, br: P, out: P) -> Result<()>
+where P: AsRef<Path>,
+      P: std::fmt::Debug {
+    info!("stitch_images: {:?} {:?} {:?} {:?} -> {:?}", tl, tr, bl, br, out);
 
     let img_tl = image::open(tl)?;
     let img_tr = image::open(tr)?;
