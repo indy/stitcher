@@ -50,19 +50,19 @@
 //! this repository for more information.
 
 #[macro_use]
-extern crate log;
 extern crate clap;
 extern crate env_logger;
 #[macro_use]
 extern crate failure;
 extern crate image;
+#[macro_use]
+extern crate log;
 
 use clap::{App, Arg};
 use std::io::Error as IoError;
 use std::fs::File;
-use std::path::Path;
 
-use image::{DynamicImage, GenericImage, ImageBuffer};
+use image::{DynamicImage, GenericImage, ImageBuffer, ImageResult, RgbaImage};
 
 /// A specialized `Result` type for the `Stitcher` crate.
 pub type Result<T> = ::std::result::Result<T, StitcherError>;
@@ -78,165 +78,147 @@ fn run() -> Result<()> {
     env_logger::init_from_env("STITCHER_LOG");
 
     let matches = App::new("Stitcher")
-        .version("0.1.0")
+        .version("0.2.0")
         .author("Inderjit Gill <email@indy.io>")
-        .about("Stitches 4 images into 1")
+        .about("Stitches images of the same dimension together")
         .arg(
-            Arg::with_name("using")
-                .short("u")
-                .long("using")
-                .help("use naming convention to determine input files")
-                .takes_value(true)
+            Arg::with_name("width")
+                .short("x")
+                .long("width")
+                .help("The number of images along the x-axis")
+                .takes_value(true),
         )
         .arg(
-            Arg::with_name("top-left")
-                .short("l")
-                .long("top-left")
-                .help("Sets the top left image")
-                .takes_value(true))
+            Arg::with_name("height")
+                .short("y")
+                .long("height")
+                .help("The number of images along the y-axis")
+                .takes_value(true),
+        )
         .arg(
-            Arg::with_name("top-right")
-                .short("t")
-                .long("top-right")
-                .help("Sets the top right image")
-                .takes_value(true))
-        .arg(
-            Arg::with_name("bottom-left")
-                .short("b")
-                .long("bottom-left")
-                .help("Sets the bottom left image")
-                .takes_value(true))
-        .arg(
-            Arg::with_name("bottom-right")
-                .short("r")
-                .long("bottom-right")
-                .help("Sets the bottom right image")
-                .takes_value(true))
+            Arg::with_name("image")
+                .short("i")
+                .long("image")
+                .help("an image to use")
+                .multiple(true)
+                .takes_value(true),
+        )
         .arg(
             Arg::with_name("output")
                 .short("o")
                 .long("output")
                 .help("Sets the output image")
-                .takes_value(true))
+                .takes_value(true),
+        )
         .get_matches();
 
-    if let Some(using) = matches.value_of("using") {
-        return stitch(using);
+    // get command line arguments
+
+    let filenames = matches
+        .values_of("image")
+        .map(|vals| vals.collect::<Vec<_>>())
+        .unwrap_or(Vec::new());
+
+    let x = value_t!(matches, "width", u32).unwrap_or(1);
+    let y = value_t!(matches, "height", u32).unwrap_or(1);
+
+    let output;
+    if let Some(o) = matches.value_of("output") {
+        output = o;
+    } else {
+        return Err(StitcherError::CommandLineParsingError);
     }
 
-    // check if we have _all_ of the images specified, return an error otherwise
-    //
-    let tl = matches.value_of("top-left");
-    let tr = matches.value_of("top-right");
-    let bl = matches.value_of("bottom-left");
-    let br = matches.value_of("bottom-right");
-    let out = matches.value_of("output");
+    // sanity check command line arguments
 
-    if let Some(tl) = tl {
-        if let Some(tr) = tr {
-            if let Some(bl) = bl {
-                if let Some(br) = br {
-                    if let Some(out) = out {
-                        return stitch_images(tl, tr, bl, br, out);
-                    }
+    if filenames.len() as u32 != x * y {
+        error!(
+            "width:{} x height:{} mismatch with given images:{}, expected:{}",
+            x,
+            y,
+            filenames.len(),
+            x * y
+        );
+        return Err(StitcherError::CommandLineParsingError);
+    };
+
+    // check image dimensions
+
+    let images: Vec<ImageResult<DynamicImage>> =
+        filenames.into_iter().map(|f| image::open(f)).collect();
+
+    let (width, height) = size_of_first(&images)?;
+    check_dimensions(&images, width, height)?;
+
+    // create the combined image
+
+    let mut img: RgbaImage = ImageBuffer::new(width * x, height * y);
+    let mut iter = images.iter();
+
+    for yy in 0..y {
+        for xx in 0..x {
+            if let Some(block) = iter.next() {
+                if let &Ok(ref block_) = block {
+                    copy_into(&mut img, &block_, xx * width, yy * height, width, height)?;
                 }
             }
         }
     }
 
-    // tl is empty, if any of the others aren't then print a warning message
-    if tr.is_some() || bl.is_some() || br.is_some() || out.is_some() {
-        error!("either specify a common 'use' value or explicitly specify all four input images and an output filename");
-        return Err(StitcherError::CommandLineParsingError);
-    }
+    // save to disk
 
-    Ok(())
-}
-
-/// Stitch together four images that meet the following requirements:
-///
-/// 1. Must be in png format
-/// 2. Have names ending in '-tl', '-tr', '-bl' and '-br' for top-left, top-right,
-///    bottom-left and bottom-right respectively
-/// 3. All images must have the same dimensions
-///
-/// # Examples
-///
-/// ```
-/// stitch("artwork")?;
-/// ```
-///
-/// Assuming that the image files: 'artwork-tl.png', 'artwork-tl.png',
-/// 'artwork-tl.png' and 'artwork-tl.png' exist, the function will combine them
-/// into a single file called 'artwork-out.png' which is saved in the same location
-/// as the input files
-pub fn stitch(using: &str) -> Result<()> {
-    info!("stitch:{}", using);
-
-    let filename_tl = format!("{}-tl.png", using);
-    let filename_tr = format!("{}-tr.png", using);
-    let filename_bl = format!("{}-bl.png", using);
-    let filename_br = format!("{}-br.png", using);
-    let filename_output = format!("{}-out.png", using);
-
-    stitch_images(
-        &filename_tl,
-        &filename_tr,
-        &filename_bl,
-        &filename_br,
-        &filename_output,
-    )
-}
-
-/// Stitch together four images given by tl, tr, bl, br. Saving the result as the filename given in out
-///
-/// # Example
-///
-/// ```
-/// stitch_images("artwork-top-left.png", "artwork-top-right.png", "artwork-bottom-left.png", "artwork-bottom-right.png", "result.png")?;
-/// ```
-pub fn stitch_images<P>(tl: P, tr: P, bl: P, br: P, out: P) -> Result<()>
-where P: AsRef<Path>,
-      P: std::fmt::Debug {
-    info!("stitch_images: {:?} {:?} {:?} {:?} -> {:?}", tl, tr, bl, br, out);
-
-    let img_tl = image::open(tl)?;
-    let img_tr = image::open(tr)?;
-    let img_bl = image::open(bl)?;
-    let img_br = image::open(br)?;
-
-    // all images should have the same dimensions
-    let (width, height) = img_tl.dimensions();
-    check_size(&img_tr, width, height)?;
-    check_size(&img_bl, width, height)?;
-    check_size(&img_br, width, height)?;
-
-    // Construct a new ImageBuffer for all 4 images
-    let mut img = ImageBuffer::new(width * 2, height * 2);
-
-    copy_into(&mut img, &img_tl, 0, 0, width, height)?;
-    copy_into(&mut img, &img_tr, width, 0, width, height)?;
-    copy_into(&mut img, &img_bl, 0, height, width, height)?;
-    copy_into(&mut img, &img_br, width, height, width, height)?;
-
-    let ref mut fout = File::create(out)?;
+    let ref mut fout = File::create(output)?;
     image::ImageRgba8(img).save(fout, image::PNG)?;
 
     Ok(())
 }
 
-fn check_size(img: &DynamicImage, expected_width: u32, expected_height: u32) -> Result<()> {
-    let (width, height) = img.dimensions();
+fn size_of_first(images: &Vec<ImageResult<DynamicImage>>) -> Result<(u32, u32)> {
+    // get the size of the first image
+    //
+    let first = images.into_iter().nth(0).unwrap();
 
-    if width != expected_width || height != expected_height {
-        return Err(StitcherError::SizeMismatch);
+    if let &Ok(ref first_image) = first {
+        Ok(first_image.dimensions())
+    } else {
+        Err(StitcherError::SizeMismatch)
+    }
+}
+
+fn check_dimensions(
+    images: &Vec<ImageResult<DynamicImage>>,
+    width: u32,
+    height: u32,
+) -> Result<()> {
+    // compare the rest of the images with the size of the first image
+    //
+    let res = images
+        .into_iter()
+        .skip(1)
+        .all(|ref image| is_same_size(&image, width, height));
+
+    if res == true {
+        Ok(())
+    } else {
+        Err(StitcherError::SizeMismatch)
+    }
+}
+
+fn is_same_size(
+    image: &std::result::Result<image::DynamicImage, image::ImageError>,
+    width: u32,
+    height: u32,
+) -> bool {
+    if let &Ok(ref img) = image {
+        let (width_, height_) = img.dimensions();
+        return width_ == width && height_ == height;
     }
 
-    Ok(())
+    false
 }
 
 fn copy_into(
-    img: &mut image::RgbaImage,
+    img: &mut RgbaImage,
     src: &DynamicImage,
     x: u32,
     y: u32,
