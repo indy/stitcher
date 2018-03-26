@@ -11,26 +11,11 @@
 //! ### Conventional usage
 //!
 //! ```no_run
-//! $ stitcher --using foo
+//! $ stitcher -x 2 -y 2 -i a.png b.png c.png d.png -o result.png
 //! ```
 //!
-//! Assuming you had the following files:
-//!
-//! - foo-tl.png
-//! - foo-tr.png
-//! - foo-bl.png
-//! - foo-br.png
-//!
-//! This will output a png called foo-out.png which contains all four of the
+//! This will output a png called result.png which contains all four of the
 //! above files stitched together in a 2x2 layout
-//!
-//! ### Explicit usage
-//!
-//! Here's an example that specifies each of the files:
-//!
-//! ```no_run
-//! $ stitcher --top-left a.png --top-right b.png --bottom-left c.png --bottom-right d.png --output output.png
-//! ```
 //!
 //! ### Debug usage
 //!
@@ -42,7 +27,7 @@
 //! - warn
 //! - error
 //!
-//! $ STITCHER_LOG='trace' stitcher --using foo
+//! $ STITCHER_LOG='trace' stitcher -x 2 -y 2 -i a.png b.png c.png d.png -o result.png
 //!
 //! ## License
 //!
