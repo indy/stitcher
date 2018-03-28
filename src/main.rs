@@ -128,50 +128,42 @@ fn run() -> Result<()> {
     };
 
     // check image dimensions
-
-    let images: Vec<ImageResult<DynamicImage>> =
+    let images_: ImageResult<Vec<DynamicImage>> =
         filenames.into_iter().map(|f| image::open(f)).collect();
+    let images = images_?;
 
     let (width, height) = size_of_first(&images)?;
     check_dimensions(&images, width, height)?;
 
     // create the combined image
-
     let mut img: RgbaImage = ImageBuffer::new(width * x, height * y);
     let mut iter = images.iter();
 
     for yy in 0..y {
         for xx in 0..x {
             if let Some(block) = iter.next() {
-                if let &Ok(ref block_) = block {
-                    copy_into(&mut img, &block_, xx * width, yy * height, width, height)?;
-                }
+                copy_into(&mut img, &block, xx * width, yy * height, width, height)?;
             }
         }
     }
 
     // save to disk
-
     let ref mut fout = File::create(output)?;
     image::ImageRgba8(img).save(fout, image::PNG)?;
 
     Ok(())
 }
 
-fn size_of_first(images: &Vec<ImageResult<DynamicImage>>) -> Result<(u32, u32)> {
-    // get the size of the first image
-    //
-    let first = images.into_iter().nth(0).unwrap();
-
-    if let &Ok(ref first_image) = first {
+fn size_of_first(images: &Vec<DynamicImage>) -> Result<(u32, u32)> {
+    if let Some(first_image) = images.into_iter().nth(0) {
         Ok(first_image.dimensions())
     } else {
-        Err(StitcherError::SizeMismatch)
+        Err(StitcherError::NoFirstImage)
     }
 }
 
 fn check_dimensions(
-    images: &Vec<ImageResult<DynamicImage>>,
+    images: &Vec<DynamicImage>,
     width: u32,
     height: u32,
 ) -> Result<()> {
@@ -190,16 +182,13 @@ fn check_dimensions(
 }
 
 fn is_same_size(
-    image: &std::result::Result<image::DynamicImage, image::ImageError>,
+    image: &DynamicImage,
     width: u32,
     height: u32,
 ) -> bool {
-    if let &Ok(ref img) = image {
-        let (width_, height_) = img.dimensions();
-        return width_ == width && height_ == height;
-    }
 
-    false
+    let (width_, height_) = image.dimensions();
+    width_ == width && height_ == height
 }
 
 fn copy_into(
@@ -225,6 +214,8 @@ pub enum StitcherError {
     #[fail(display = "Command line parsing")] CommandLineParsingError,
 
     #[fail(display = "Image size mismatch")] SizeMismatch,
+
+    #[fail(display = "No first image")] NoFirstImage,
 
     /// This allows you to produce any `failure::Error` within closures used by
     /// the skeleton crate. No errors of this kind will ever be produced by the
